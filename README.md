@@ -26,6 +26,37 @@ It is a streaming reverse proxy with a pluggable identity provider. Every provid
 
 **Threat model in one line:** anything on the pod's loopback can ask Robin to present the workload's identity — so Robin defaults to loopback-only, with a Unix-domain-socket + `SO_PEERCRED` peer-credential mode for hardened deployments (v0.2).
 
+## Quickstart
+
+**Build:**
+
+```sh
+make build            # -> bin/robin (static, CGO-free)
+make test             # go test ./...
+```
+
+**Run locally** (file provider, pointing at any broker/echo endpoint):
+
+```sh
+ROBIN_UPSTREAM_URL=https://broker.example:8443 \
+ROBIN_TOKEN_SOURCE=file \
+ROBIN_TOKEN_FILE=/var/run/secrets/tokens/broker-token \
+ROBIN_LISTEN_ADDR=127.0.0.1:4000 \
+ROBIN_ADMIN_ADDR=:4001 \
+  bin/robin
+# app egress: point it at http://127.0.0.1:4000 ; probe http://<pod-ip>:4001/healthz
+```
+
+**Container image:**
+
+```sh
+docker build -t robin:0.1.0 -f deploy/Dockerfile .   # ~24MB distroless, nonroot
+```
+
+**Kubernetes native sidecar:** see [`deploy/k8s/sidecar-example.yaml`](deploy/k8s/sidecar-example.yaml) — Robin runs as an `initContainer` with `restartPolicy: Always` (K8s 1.29+), the app points its egress at `127.0.0.1:4000`, and probes hit the admin plane on `:4001`.
+
+> Bind the **proxy** plane to `127.0.0.1` (only this pod's app should reach it); bind the **admin** plane to all interfaces (`:4001`) so the kubelet's liveness/readiness probes can reach it.
+
 ## Identity providers
 
 | Source | `ROBIN_TOKEN_SOURCE` | Rotation |

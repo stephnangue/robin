@@ -1,0 +1,90 @@
+# Robin as a native sidecar (Kubernetes 1.29+).
+#
+# Robin runs as an initContainer with restartPolicy: Always, so it starts before
+# the app container (no first-call race) and terminates after it (no in-flight
+# egress loss). The app sends egress to Robin on loopback; Robin injects the
+# pod's projected ServiceAccount token as a bearer and forwards to the broker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-with-robin
+  labels:
+    app: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent
+  template:
+    metadata:
+      labels:
+        app: agent
+    spec:
+      serviceAccountName: agent
+      terminationGracePeriodSeconds: 30 # > Robin's 25s in-flight drain budget
+      containers:
+        - name: agent
+          image: ghcr.io/example/kagent:latest
+          env:
+            # Point the framework's egress at Robin on loopback, not the broker.
+            - name: OPENAI_BASE_URL
+              value: "http://127.0.0.1:4000/v1"
+            # kagent requires *some* key; it is inert — Robin overwrites Authorization.
+            - name: OPENAI_API_KEY
+              value: "unused-placeholder"
+      initContainers:
+        - name: robin
+          image: ghcr.io/snangue/robin:0.1.0
+          restartPolicy: Always # native sidecar: starts first, stops last
+          args: []
+          env:
+            - name: ROBIN_UPSTREAM_URL
+              value: "https://broker.example.svc:8443"
+            - name: ROBIN_TOKEN_SOURCE
+              value: "file"
+            # Proxy plane: loopback only — only this pod's app may ask for injection.
+            - name: ROBIN_LISTEN_ADDR
+              value: "127.0.0.1:4000"
+            # Admin plane: all interfaces, so the kubelet can reach the probes.
+            - name: ROBIN_ADMIN_ADDR
+              value: ":4001"
+            - name: ROBIN_TOKEN_FILE
+              value: "/var/run/secrets/tokens/broker-token"
+          volumeMounts:
+            - name: broker-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 4001
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 4001
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: broker-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: broker-token
+                  # Must match the audience the broker validates.
+                  audience: "broker.example"
+                  expirationSeconds: 3600
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent

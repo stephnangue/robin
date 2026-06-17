@@ -13,8 +13,11 @@ func New(ctx context.Context, cfg config.Config) (IdentityProvider, error) {
 	case "file":
 		return NewFileProvider(cfg.TokenFile), nil
 	case "jwtsvid":
-		// Real implementation lands in PR4 (SPIFFE JWT-SVID provider).
-		return nil, fmt.Errorf("identity: token source %q not yet available", cfg.TokenSource)
+		fetcher, err := newJWTSVIDSource(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return newJWTSVIDProviderWith(fetcher, cfg.Audience, cfg.SVIDRefreshBefore), nil
 	default:
 		return nil, fmt.Errorf("identity: unknown token source %q", cfg.TokenSource)
 	}

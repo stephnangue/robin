@@ -8,17 +8,23 @@ import (
 	"time"
 )
 
-// fakeFetcher is a programmable jwtFetcher; fetch optionally blocks on gate.
+// fakeFetcher is a programmable jwtFetcher. fetch signals `entered` (if set)
+// when it begins, then blocks on `gate` (if set) — letting tests pin a fetch
+// in flight deterministically.
 type fakeFetcher struct {
-	mu    sync.Mutex
-	calls int
-	tok   string
-	exp   time.Time
-	err   error
-	gate  chan struct{}
+	mu      sync.Mutex
+	calls   int
+	tok     string
+	exp     time.Time
+	err     error
+	gate    chan struct{}
+	entered chan struct{}
 }
 
 func (f *fakeFetcher) fetch(_ context.Context, _ string) (string, time.Time, error) {
+	if f.entered != nil {
+		f.entered <- struct{}{}
+	}
 	if f.gate != nil {
 		<-f.gate
 	}
@@ -41,6 +47,23 @@ func (f *fakeFetcher) set(tok string, exp time.Time, err error) {
 	defer f.mu.Unlock()
 	f.tok, f.exp, f.err = tok, exp, err
 }
+
+// panicFetcher panics until stop is set — to prove a panicking Workload API
+// client cannot permanently wedge the provider.
+type panicFetcher struct {
+	stop bool
+	tok  string
+	exp  time.Time
+}
+
+func (f *panicFetcher) fetch(context.Context, string) (string, time.Time, error) {
+	if !f.stop {
+		panic("workload api client blew up")
+	}
+	return f.tok, f.exp, nil
+}
+
+func (f *panicFetcher) close() error { return nil }
 
 // clock is a thread-safe injectable clock.
 type clock struct {
@@ -150,13 +173,58 @@ func TestJWTSVIDHardFailWhenExpiredAndErroring(t *testing.T) {
 	}
 }
 
+func TestJWTSVIDRejectsEmptyToken(t *testing.T) {
+	clk := &clock{t: base}
+	f := &fakeFetcher{tok: "", exp: base.Add(5 * time.Minute)}
+	p := newTestProvider(f, clk.now)
+	if _, err := p.Token(context.Background()); err == nil {
+		t.Error("want error: an empty token must not be returned as a valid bearer")
+	}
+}
+
+func TestJWTSVIDRejectsExpiredToken(t *testing.T) {
+	clk := &clock{t: base}
+	f := &fakeFetcher{tok: "stale", exp: base.Add(-time.Minute)} // already expired
+	p := newTestProvider(f, clk.now)
+	if _, err := p.Token(context.Background()); err == nil {
+		t.Error("want error: an already-expired token must not be returned as valid")
+	}
+}
+
+func TestJWTSVIDSurvivesFetchPanic(t *testing.T) {
+	clk := &clock{t: base}
+	f := &panicFetcher{}
+	p := newTestProvider(f, clk.now)
+
+	if _, err := p.Token(context.Background()); err == nil {
+		t.Fatal("want error when fetch panics")
+	}
+	// The provider must not be wedged: a later successful fetch works.
+	f.stop = true
+	f.tok = "tok1"
+	f.exp = base.Add(5 * time.Minute)
+	if tok, err := p.Token(context.Background()); err != nil || tok != "tok1" {
+		t.Fatalf("provider wedged after panic: tok=%q err=%v", tok, err)
+	}
+}
+
 func TestJWTSVIDConcurrencyCollapse(t *testing.T) {
 	clk := &clock{t: base}
 	gate := make(chan struct{})
-	f := &fakeFetcher{tok: "tok1", exp: base.Add(5 * time.Minute), gate: gate}
+	entered := make(chan struct{}, 1)
+	f := &fakeFetcher{tok: "tok1", exp: base.Add(5 * time.Minute), gate: gate, entered: entered}
 	p := newTestProvider(f, clk.now)
 
-	const n = 25
+	// Leader enters fetch and blocks there, holding inflight while the cache is
+	// still empty — so any concurrent caller is forced onto the collapse path.
+	leader := make(chan string, 1)
+	go func() {
+		tok, _ := p.Token(context.Background())
+		leader <- tok
+	}()
+	<-entered // leader is now inside fetch: inflight set, cache empty
+
+	const n = 20
 	var wg sync.WaitGroup
 	toks := make([]string, n)
 	errs := make([]error, n)
@@ -167,16 +235,18 @@ func TestJWTSVIDConcurrencyCollapse(t *testing.T) {
 			toks[i], errs[i] = p.Token(context.Background())
 		}(i)
 	}
-	time.Sleep(50 * time.Millisecond) // let all goroutines block on the in-flight fetch
-	close(gate)
+	close(gate) // release the single in-flight fetch
 	wg.Wait()
 
+	if got := <-leader; got != "tok1" {
+		t.Errorf("leader token = %q, want tok1", got)
+	}
 	if f.callCount() != 1 {
-		t.Errorf("fetch calls = %d, want 1 (collapsed)", f.callCount())
+		t.Errorf("fetch calls = %d, want exactly 1 (collapsed)", f.callCount())
 	}
 	for i := 0; i < n; i++ {
 		if errs[i] != nil || toks[i] != "tok1" {
-			t.Errorf("goroutine %d: %q, %v", i, toks[i], errs[i])
+			t.Errorf("waiter %d: %q, %v", i, toks[i], errs[i])
 		}
 	}
 }

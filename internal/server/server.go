@@ -71,14 +71,19 @@ func (s *Server) Run(ctx context.Context) error {
 		slog.String("proxy", s.proxyLn.Addr().String()),
 		slog.String("admin", s.adminLn.Addr().String()))
 
-	select {
-	case err := <-errc:
-		return err
-	case <-ctx.Done():
-		s.log.Info("shutting down, draining in-flight egress")
+	shutdown := func() error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		// Drain the proxy first (finish in-flight egress), then the admin plane.
 		return errors.Join(s.proxy.Shutdown(shutCtx), s.admin.Shutdown(shutCtx))
+	}
+
+	select {
+	case err := <-errc:
+		// One plane failed to serve: shut the other down too, never leave it running.
+		return errors.Join(err, shutdown())
+	case <-ctx.Done():
+		s.log.Info("shutting down, draining in-flight egress")
+		return shutdown()
 	}
 }

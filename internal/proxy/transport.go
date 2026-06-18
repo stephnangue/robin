@@ -19,6 +19,8 @@ func buildTransport(cfg config.Config) (*http.Transport, error) {
 		return nil, fmt.Errorf("proxy: unexpected default transport type %T", http.DefaultTransport)
 	}
 	t := base.Clone()
+	// Pin a TLS 1.2 floor on every path, not only when a CA file is configured.
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if cfg.UpstreamCAFile != "" {
 		pem, err := os.ReadFile(cfg.UpstreamCAFile)
 		if err != nil {
@@ -28,7 +30,8 @@ func buildTransport(cfg config.Config) (*http.Transport, error) {
 		if !pool.AppendCertsFromPEM(pem) {
 			return nil, fmt.Errorf("proxy: no certificates found in %s", cfg.UpstreamCAFile)
 		}
-		t.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		tlsCfg.RootCAs = pool
 	}
+	t.TLSClientConfig = tlsCfg
 	return t, nil
 }

@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -80,6 +81,10 @@ func New(cfg config.Config, p identity.IdentityProvider, log *slog.Logger) (*Han
 // identity cannot be resolved it returns 503 and never contacts the broker.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tok, err := h.provider.Token(r.Context())
+	if err == nil && tok == "" {
+		// Fail closed: never forward an empty/placeholder credential.
+		err = errors.New("provider returned an empty token")
+	}
 	if err != nil {
 		h.log.Warn("identity unavailable",
 			slog.String(obs.FieldProvider, h.source),

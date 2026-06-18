@@ -88,6 +88,30 @@ func TestProviderErrorReturns503(t *testing.T) {
 	}
 }
 
+func TestEmptyTokenReturns503(t *testing.T) {
+	called := false
+	broker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}))
+	defer broker.Close()
+
+	// Provider returns ("", nil) — must fail closed, never forward "Bearer ".
+	srv := httptest.NewServer(newHandler(t, broker.URL, stubProvider{tok: ""}))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 for empty token", resp.StatusCode)
+	}
+	if called {
+		t.Error("broker must not be contacted when the token is empty")
+	}
+}
+
 func TestBrokerDownReturns502(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	deadURL := dead.URL

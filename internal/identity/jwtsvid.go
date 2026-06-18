@@ -76,9 +76,17 @@ func (p *JWTSVIDProvider) Token(ctx context.Context) (string, error) {
 }
 
 // refresh fetches a new SVID, collapsing concurrent refreshes so a burst of
-// requests triggers a single Workload API call.
-func (p *JWTSVIDProvider) refresh(ctx context.Context, aud string) (string, error) {
+// requests triggers a single Workload API call. A fetched token is rejected if
+// it is empty or already expired, so the provider fails closed (like the file
+// provider) rather than handing the proxy a degenerate "Bearer " credential.
+func (p *JWTSVIDProvider) refresh(ctx context.Context, aud string) (tok string, err error) {
 	p.mu.Lock()
+	// Re-check under the lock: a concurrent refresh may have just populated a
+	// fresh entry between our cache read in Token and acquiring this lock.
+	if c, ok := p.cache[aud]; ok && p.now().Before(c.refreshAt) {
+		p.mu.Unlock()
+		return c.token, nil
+	}
 	if call, ok := p.inflight[aud]; ok {
 		p.mu.Unlock()
 		select {
@@ -92,22 +100,36 @@ func (p *JWTSVIDProvider) refresh(ctx context.Context, aud string) (string, erro
 	p.inflight[aud] = call
 	p.mu.Unlock()
 
-	tok, exp, err := p.fetcher.fetch(ctx, aud)
+	var exp time.Time
+	// Always release leadership and wake waiters — even if fetch panics — so a
+	// misbehaving Workload API client can never permanently wedge the provider.
+	defer func() {
+		if r := recover(); r != nil {
+			tok, exp, err = "", time.Time{}, fmt.Errorf("identity/jwtsvid: fetch panicked: %v", r)
+		}
+		p.mu.Lock()
+		delete(p.inflight, aud)
+		if err == nil {
+			p.cache[aud] = cachedSVID{token: tok, expiry: exp, refreshAt: p.refreshAt(exp)}
+		}
+		p.mu.Unlock()
+		// Share one result (and one error shape) with any collapsed waiters.
+		call.token, call.err = tok, err
+		close(call.done)
+	}()
+
+	tok, exp, err = p.fetcher.fetch(ctx, aud)
+	switch {
+	case err != nil:
+		err = fmt.Errorf("identity/jwtsvid: fetch: %w", err)
+	case tok == "":
+		err = fmt.Errorf("identity/jwtsvid: %w", ErrNoToken)
+	case !exp.After(p.now()):
+		err = fmt.Errorf("identity/jwtsvid: fetched SVID already expired at %s", exp.UTC().Format(time.RFC3339))
+	}
 	if err != nil {
 		tok = ""
-		err = fmt.Errorf("identity/jwtsvid: fetch: %w", err)
 	}
-
-	p.mu.Lock()
-	delete(p.inflight, aud)
-	if err == nil {
-		p.cache[aud] = cachedSVID{token: tok, expiry: exp, refreshAt: p.refreshAt(exp)}
-	}
-	p.mu.Unlock()
-
-	// Share one result (and one error shape) with any collapsed waiters.
-	call.token, call.err = tok, err
-	close(call.done)
 	return tok, err
 }
 

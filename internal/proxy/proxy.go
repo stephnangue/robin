@@ -24,7 +24,7 @@ const tokenCtxKey ctxKey = 0
 // Handler resolves identity and proxies requests to the broker, injecting the
 // token as a bearer header.
 type Handler struct {
-	provider identity.IdentityProvider
+	provider identity.Provider
 	rp       *httputil.ReverseProxy
 	log      *slog.Logger
 	source   string
@@ -32,7 +32,7 @@ type Handler struct {
 }
 
 // New builds a proxy Handler targeting cfg.UpstreamURL.
-func New(cfg config.Config, p identity.IdentityProvider, log *slog.Logger) (*Handler, error) {
+func New(cfg config.Config, p identity.Provider, log *slog.Logger) (*Handler, error) {
 	target, err := url.Parse(cfg.UpstreamURL)
 	if err != nil {
 		return nil, fmt.Errorf("proxy: parse upstream URL: %w", err)

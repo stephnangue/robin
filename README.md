@@ -72,7 +72,7 @@ Config is a flat set of `ROBIN_`-prefixed scalars — **no config language**. Pr
 |-----|---------|-------|
 | `ROBIN_UPSTREAM_URL` | (required) | Broker base URL |
 | `ROBIN_TOKEN_SOURCE` | `file` | `file` \| `jwtsvid` |
-| `ROBIN_LISTEN_ADDR` | `:4000` | proxy plane (set `127.0.0.1:4000` for loopback-only) |
+| `ROBIN_LISTEN_ADDR` | `127.0.0.1:4000` | proxy plane (loopback by default) |
 | `ROBIN_LISTEN_UDS` | — | UDS path; enables peer-cred mode (v0.2) |
 | `ROBIN_ADMIN_ADDR` | `:4001` | health/readiness/metrics plane |
 | `ROBIN_TOKEN_FILE` | `/var/run/secrets/tokens/token` | `file` provider |
@@ -82,7 +82,7 @@ Config is a flat set of `ROBIN_`-prefixed scalars — **no config language**. Pr
 | `ROBIN_UPSTREAM_CA_FILE` | — | verify broker TLS |
 | `ROBIN_PEERCRED_ALLOW_UIDS` | — | (v0.2) comma-separated UIDs; empty = allow any local peer |
 
-> **Bind address:** the bare defaults `:4000`/`:4001` bind *all* interfaces. For the sidecar's loopback-only trust boundary, set `127.0.0.1:...` explicitly (the example manifest does).
+> **Bind address:** the proxy plane defaults to `127.0.0.1:4000` (loopback); the admin plane defaults to `:4001` (all interfaces) so kubelet probes can reach it — restrict `:4001` ingress with a NetworkPolicy where the platform allows it.
 
 > **Audience must match end to end.** A mismatch between the token's audience and the broker's expected audience is a hard reject — for projected tokens and SVIDs alike.
 

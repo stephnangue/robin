@@ -45,7 +45,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TokenSource != "file" || cfg.ListenAddr != ":4000" || cfg.AdminAddr != ":4001" {
+	if cfg.TokenSource != "file" || cfg.ListenAddr != "127.0.0.1:4000" || cfg.AdminAddr != ":4001" {
 		t.Errorf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.SVIDRefreshBefore.Seconds() != 60 {

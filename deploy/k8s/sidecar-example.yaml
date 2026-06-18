@@ -46,6 +46,8 @@ spec:
             - name: ROBIN_LISTEN_ADDR
               value: "127.0.0.1:4000"
             # Admin plane: all interfaces, so the kubelet can reach the probes.
+            # It serves only health/readiness/metrics (never identity); restrict
+            # :4001 ingress with a NetworkPolicy where the platform allows it.
             - name: ROBIN_ADMIN_ADDR
               value: ":4001"
             - name: ROBIN_TOKEN_FILE

@@ -20,7 +20,8 @@ func proxyListener(cfg config.Config) (net.Listener, error) {
 		if err != nil {
 			return nil, fmt.Errorf("server: listen unix %s: %w", cfg.ListenUDS, err)
 		}
-		if err := os.Chmod(cfg.ListenUDS, 0o660); err != nil {
+		// 0o600 until v0.2 SO_PEERCRED enforcement lands: owner-only, not group-wide.
+		if err := os.Chmod(cfg.ListenUDS, 0o600); err != nil {
 			_ = ln.Close()
 			return nil, fmt.Errorf("server: chmod %s: %w", cfg.ListenUDS, err)
 		}

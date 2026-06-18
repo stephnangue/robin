@@ -8,7 +8,7 @@ import (
 )
 
 // New builds the identity provider selected by cfg.TokenSource.
-func New(ctx context.Context, cfg config.Config) (IdentityProvider, error) {
+func New(ctx context.Context, cfg config.Config) (Provider, error) {
 	switch cfg.TokenSource {
 	case "file":
 		return NewFileProvider(cfg.TokenFile), nil

@@ -8,8 +8,8 @@ import (
 	"errors"
 )
 
-// IdentityProvider resolves the workload's native identity as a bearer token.
-type IdentityProvider interface {
+// Provider resolves the workload's native identity as a bearer token.
+type Provider interface {
 	// Token returns a bearer token valid for the configured audience.
 	// Implementations must be safe for concurrent use.
 	Token(ctx context.Context) (string, error)

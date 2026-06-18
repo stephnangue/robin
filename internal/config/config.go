@@ -77,7 +77,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.StringVar(&cfgPath, "config", path, "path to a flat KEY=value config file")
 	fs.StringVar(&cfg.UpstreamURL, "upstream-url", val("ROBIN_UPSTREAM_URL", ""), "broker base URL (required)")
 	fs.StringVar(&cfg.TokenSource, "token-source", val("ROBIN_TOKEN_SOURCE", "file"), "identity source: file|jwtsvid")
-	fs.StringVar(&cfg.ListenAddr, "listen-addr", val("ROBIN_LISTEN_ADDR", ":4000"), "proxy listen address")
+	fs.StringVar(&cfg.ListenAddr, "listen-addr", val("ROBIN_LISTEN_ADDR", "127.0.0.1:4000"), "proxy listen address")
 	fs.StringVar(&cfg.ListenUDS, "listen-uds", val("ROBIN_LISTEN_UDS", ""), "proxy UDS path (enables peer-cred mode)")
 	fs.StringVar(&cfg.AdminAddr, "admin-addr", val("ROBIN_ADMIN_ADDR", ":4001"), "admin listen address")
 	fs.StringVar(&cfg.TokenFile, "token-file", val("ROBIN_TOKEN_FILE", "/var/run/secrets/tokens/token"), "file provider token path")

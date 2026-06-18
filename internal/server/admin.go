@@ -10,7 +10,7 @@ import (
 // AdminMux builds the admin handler served on a listener separate from the
 // proxy: liveness, readiness, and (in v0.2) metrics. These must not live on the
 // proxy listener, which forwards every path to the broker.
-func AdminMux(p identity.IdentityProvider) http.Handler {
+func AdminMux(p identity.Provider) http.Handler {
 	mux := http.NewServeMux()
 
 	// Liveness: the process is up.

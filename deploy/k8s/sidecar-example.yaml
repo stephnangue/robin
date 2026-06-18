@@ -7,30 +7,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: agent-with-robin
+  name: myapp-with-robin
   labels:
-    app: agent
+    app: myapp
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: agent
+      app: myapp
   template:
     metadata:
       labels:
-        app: agent
+        app: myapp
     spec:
-      serviceAccountName: agent
+      serviceAccountName: myapp
       terminationGracePeriodSeconds: 30 # > Robin's 25s in-flight drain budget
       containers:
-        - name: agent
-          image: ghcr.io/example/kagent:latest
+        - name: myapp
+          image: ghcr.io/example/myapp:latest
           env:
-            # Point the framework's egress at Robin on loopback, not the broker.
-            - name: OPENAI_BASE_URL
-              value: "http://127.0.0.1:4000/v1"
-            # kagent requires *some* key; it is inert — Robin overwrites Authorization.
-            - name: OPENAI_API_KEY
+            # Point the app's egress at Robin on loopback instead of the upstream.
+            - name: UPSTREAM_BASE_URL
+              value: "http://127.0.0.1:4000"
+            # Many apps require *some* credential; this one is inert — Robin
+            # overwrites the Authorization header with the workload's identity.
+            - name: UPSTREAM_API_KEY
               value: "unused-placeholder"
       initContainers:
         - name: robin
@@ -89,4 +90,4 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: agent
+  name: myapp

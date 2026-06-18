@@ -4,3 +4,6 @@
 cover.out
 coverage.*
 robin
+
+# Internal design notes — kept locally, not published.
+docs/design.md

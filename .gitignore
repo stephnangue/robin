@@ -3,7 +3,8 @@
 *.out
 cover.out
 coverage.*
-robin
+# Root build output only — must not match the cmd/robin/ source directory.
+/robin
 
 # Internal design notes — kept locally, not published.
 docs/design.md

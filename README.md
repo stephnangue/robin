@@ -14,17 +14,11 @@ Robin breaks the coupling. It sits next to the workload, sources the rotating id
 
 ## How it works
 
-```
- app ──http, no credential──▶ Robin (127.0.0.1:4000)
-                                │ resolve the workload's rotating identity (always fresh)
-                                │ inject: Authorization: Bearer <token>   (overwrites any placeholder)
-                                ▼
-                             broker ──validate identity──▶ apply real credential ──▶ upstream
-```
+![Architecture: robin flow](./docs/robin-flow.png)
 
-- The **app** makes ordinary HTTP requests to Robin on loopback. No API key, no token-reload logic — at most an inert placeholder header, which Robin overwrites.
+- The **App** makes ordinary HTTP requests to Robin on loopback. No API key, no token-reload logic — at most an inert placeholder header, which Robin overwrites.
 - **Robin** is a streaming reverse proxy with a pluggable identity provider. It resolves the workload's native token (always current), sets `Authorization: Bearer`, and forwards. It is body-agnostic and never reads or buffers the request body, so streaming responses pass straight through.
-- The **broker** — any identity-aware egress gateway — validates the presented identity and applies the real upstream credential. Robin itself never mints, exchanges, signs, or federates, so the machine holds **no real provider credential** — universally, for every provider, with no exceptions.
+- The **Broker** — any identity-aware egress gateway — validates the presented identity and applies the real upstream credential. Robin itself never mints, exchanges, signs, or federates, so the machine holds **no real provider credential** — universally, for every provider, with no exceptions.
 
 **Threat model in one line:** anything on the pod's loopback can ask Robin to present the workload's identity — so the proxy plane defaults to loopback-only, with a Unix-domain-socket + `SO_PEERCRED` peer-credential mode for hardened deployments.
 
@@ -127,7 +121,7 @@ Served on a **separate admin listener** (`ROBIN_ADMIN_ADDR`, default `:4001`) �
 
 - **v0.1 (core):** `file` + `jwtsvid` providers, native-sidecar deployment, loopback proxy with broker-forward, `/healthz` + `/readyz`, structured logging, container image.
 - **v0.2 (hardening):** `SO_PEERCRED` enforcement on the UDS path, Prometheus `/metrics`, standalone systemd deployment.
-- **Future:** per-request role/intent assertion travelling with the identity.
+- **Future:** more native-OIDC identity sources (Azure AD Workload Identity, GCP Workload Identity Federation, …) behind the same provider interface — Robin stays a generic forwarder; the broker still owns validation and credential minting.
 
 ## License
 

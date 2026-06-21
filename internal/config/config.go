@@ -46,7 +46,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		if err != nil {
 			return Config{}, fmt.Errorf("config: open %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		fileMap, err = parseDotenv(f)
 		if err != nil {
 			return Config{}, fmt.Errorf("config: parse %s: %w", path, err)

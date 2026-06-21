@@ -7,3 +7,9 @@ linters:
     - staticcheck
     - unused
     - revive
+  exclusions:
+    rules:
+      # Unchecked Close() on response/request bodies in tests is noise.
+      - path: _test\.go
+        linters:
+          - errcheck

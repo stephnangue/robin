@@ -1,0 +1,16 @@
+# Used by GoReleaser (dockers_v2): copies the pre-built binary rather than
+# compiling from source. The source-build image is deploy/Dockerfile.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+ARG TARGETPLATFORM
+
+WORKDIR /app
+
+COPY ${TARGETPLATFORM}/robin ./robin
+
+# 4000 = proxy plane (bind loopback in a sidecar); 4001 = admin plane.
+EXPOSE 4000 4001
+
+USER nonroot:nonroot
+
+ENTRYPOINT ["./robin"]

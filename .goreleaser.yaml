@@ -1,0 +1,54 @@
+version: 2
+
+project_name: robin
+
+builds:
+  - main: ./cmd/robin
+    binary: robin
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/snangue/robin/internal/version.Version={{ .Version }}
+      - -X github.com/snangue/robin/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/snangue/robin/internal/version.Date={{ .Date }}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+dockers_v2:
+  - id: robin
+    images:
+      - "ghcr.io/stephnangue/robin"
+    tags:
+      - "v{{ .Version }}"
+      - latest
+    dockerfile: deploy/Dockerfile.goreleaser
+
+release:
+  github:
+    owner: stephnangue
+    name: robin
+  draft: false
+  prerelease: auto
+  name_template: "Robin v{{ .Version }}"

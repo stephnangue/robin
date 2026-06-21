@@ -1,28 +1,123 @@
-name: ci
+name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+    # `edited` so retargeting a stacked PR's base to main triggers CI;
+    # without it a retargeted PR has no run queued until a force-push.
+    types: [opened, synchronize, reopened, edited]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
-  build-test:
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.decide.outputs.code }}
+      deploy: ${{ steps.decide.outputs.deploy }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      # On release-tag pushes a main...tag diff sees zero changed files, so
+      # every filter returns false. Bypass the filter for tags and force all
+      # downstream jobs to run.
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
-          go-version: "1.26"
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test -race ./...
+          filters: |
+            code:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+            deploy:
+              - 'deploy/**'
+              - '.github/workflows/ci.yml'
+      - id: decide
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "code=true"   >> "$GITHUB_OUTPUT"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=${{ steps.filter.outputs.code }}"     >> "$GITHUB_OUTPUT"
+            echo "deploy=${{ steps.filter.outputs.deploy }}" >> "$GITHUB_OUTPUT"
+          fi
 
   lint:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
+
+  unit:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Build
+        run: go build -o robin ./cmd/robin
+
+  manifest:
+    needs: [changes]
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install kubeconform
+        run: |
+          curl -L -o kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform.tar.gz
+          sudo install -m 0755 kubeconform /usr/local/bin/
+      - name: kubeconform (sidecar manifest)
+        run: kubeconform -strict -summary -kubernetes-version 1.29.0 deploy/k8s/sidecar-example.yaml
+
+  docker:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      # Builds deploy/Dockerfile from source (go build ./cmd/robin) — this is
+      # the check that catches a missing entrypoint.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          tags: robin:ci
+
+  ci:
+    # Single aggregate gate for branch protection: a skipped (path-filtered)
+    # job is fine; only a real failure/cancel fails the gate.
+    needs: [changes, lint, unit, manifest, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        run: |
+          echo "changes=${{ needs.changes.result }} lint=${{ needs.lint.result }} unit=${{ needs.unit.result }} manifest=${{ needs.manifest.result }} docker=${{ needs.docker.result }}"
+          for r in "${{ needs.changes.result }}" "${{ needs.lint.result }}" "${{ needs.unit.result }}" "${{ needs.manifest.result }}" "${{ needs.docker.result }}"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "A required job did not pass."
+              exit 1
+            fi
+          done
+          echo "CI gate passed."
